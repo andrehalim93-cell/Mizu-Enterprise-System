@@ -3699,5 +3699,66 @@ function RdashboardModern(isExpanded){
   }catch(e){ console.error(e); }
 }
 </script>
+<script>
+// === PATCH SYNC USERS_FINAL KE SUPABASE ===
+async function syncUsersBos(){
+  try{
+    var raw = localStorage.getItem('users_final');
+    if(!raw) return;
+    var users = JSON.parse(raw);
+    if(window.saveToSupabaseBos) await window.saveToSupabaseBos('users_final', users);
+  }catch(e){ console.log('sync users gagal', e); }
+}
+async function loadUsersBos(){
+  try{
+    if(!window.supabaseClient) return false;
+    var res = await window.supabaseClient.from('app_data').select('data').eq('key','users_final').maybeSingle();
+    if(res && res.data && res.data.data && Array.isArray(res.data.data) && res.data.data.length > 0){
+      // Jangan timpa kalau local lebih baru? Untuk sekarang, Supabase yang menang biar password sama semua HP
+      localStorage.setItem('users_final', JSON.stringify(res.data.data));
+      return true;
+    }
+  }catch(e){ console.log('load users gagal', e); }
+  return false;
+}
+// Bungkus fungsi lama biar tiap ganti user langsung sync
+(function(){
+  var _add = window.addUserBos;
+  var _edit = window.editUserBos;
+  var _del = window.deleteUserBos;
+  if(_add) window.addUserBos = function(){ var r=_add.apply(this, arguments); syncUsersBos(); return r; };
+  if(_edit) window.editUserBos = function(){ var r=_edit.apply(this, arguments); syncUsersBos(); return r; };
+  if(_del) window.deleteUserBos = function(){ var r=_del.apply(this, arguments); syncUsersBos(); return r; };
+  // Ganti password lewat menu Ganti Password
+  var _ganti = window.doGantiPasswordBos || window.gantiPasswordBos;
+  // Kalau nama fungsinya beda, kita tangkap lewat tombolnya juga, jadi kita patch localStorage langsung:
+  var _set = localStorage.setItem.bind(localStorage);
+  // Jangan override global, cukup pantau lewat event: tiap 2 detik cek kalau users_final berubah, sync
+  var _lastUsers = localStorage.getItem('users_final') || '';
+  setInterval(function(){
+    var cur = localStorage.getItem('users_final') || '';
+    if(cur && cur !== _lastUsers){ _lastUsers = cur; syncUsersBos(); }
+  }, 2000);
+})();
+// Pas buka web, ambil dulu password terbaru dari Supabase sebelum login
+document.addEventListener('DOMContentLoaded', async function(){
+  await loadUsersBos();
+  // Kalau belum ada users_final di Supabase, upload yang dari HP ini (HP lama jadi sumber pertama)
+  try{
+    var res = await window.supabaseClient.from('app_data').select('data').eq('key','users_final').maybeSingle();
+    if(!res || !res.data || !res.data.data){
+      await syncUsersBos();
+    }
+  }catch(e){}
+});
+// Pas login dipencet, ambil dulu yang terbaru biar gak pakai password lama
+(function(){
+  var _login = window.modernLoginBos;
+  if(_login) window.modernLoginBos = async function(){
+    await loadUsersBos();
+    return _login.apply(this, arguments);
+  };
+})();
+</script>
 </body>
 </html>
